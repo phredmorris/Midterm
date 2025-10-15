@@ -1,0 +1,11 @@
+{
+  "name": "static-site",
+  "version": "1.0.0",
+  "description": "A small static site ready for Vercel",
+  "scripts": {
+    "start": "serve -s . -l 3000"
+  },
+  "devDependencies": {},
+  "keywords": [],
+  "license": "MIT"
+}
