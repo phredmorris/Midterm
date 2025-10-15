@@ -274,6 +274,22 @@
 
             // 2. Start core logic
             startTimer();
+
+            // Example backend call: demonstrate a serverless API request.
+            // This shows how the frontend can call a backend endpoint (hosted on Vercel under /api).
+            fetch(`/api/hello?identifier=${encodeURIComponent(userIdentifier)}`)
+                .then(response => response.json())
+                .then(data => {
+                    const info = document.createElement('div');
+                    info.className = 'my-4 p-3 bg-green-50 border-l-4 border-green-400 text-sm rounded';
+                    info.textContent = `${data.message} (server time: ${new Date(data.timestamp).toLocaleString()})`;
+                    // Show the API response at the top of the TOS container
+                    tosAppContainer.prepend(info);
+                })
+                .catch(err => {
+                    console.error('API call failed', err);
+                });
+
             generateNewTerms(); // Loads the very first clause
             // The most important part: start listening for scrolling!
             window.addEventListener('scroll', handleScroll); 
