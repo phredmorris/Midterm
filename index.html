@@ -111,6 +111,71 @@
             mix-blend-mode: screen;
         }
 
+
+        /* ===== Glitch / Breakdown visual styles ===== */
+        /* Respect users who prefer reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            .glitch-mode * {
+                transition: none !important;
+                animation: none !important;
+            }
+        }
+
+        .glitch-mode {
+            /* intense background clash */
+            background: repeating-linear-gradient(45deg, #070707 0 2px, #1a1a1a 2px 6px), radial-gradient(circle at 20% 10%, rgba(255,0,80,0.12), transparent 18%);
+            color: transparent !important; /* base text will be replaced by scrambled layers via JS */
+            overflow: hidden;
+            filter: contrast(140%) saturate(160%);
+        }
+
+        .glitch-mode .tos-text {
+            /* heavier blur + high contrast to make text illegible */
+            filter: blur(2.6px) contrast(180%) saturate(200%);
+            mix-blend-mode: difference;
+            letter-spacing: 0.6px;
+        }
+
+        /* layered offset text pseudo effect for headings */
+        .glitch-mode .glitch-heading {
+            position: relative;
+        }
+        .glitch-mode .glitch-heading::before,
+        .glitch-mode .glitch-heading::after {
+            content: attr(data-text);
+            position: absolute;
+            left: 0; top: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+    .glitch-mode .glitch-heading::before { color: #ff0066; transform: translate(-6px, -3px) skewX(-6deg); mix-blend-mode: screen; opacity:0.9; }
+    .glitch-mode .glitch-heading::after  { color: #00ffff; transform: translate(6px, 3px) skewX(6deg); mix-blend-mode: multiply; opacity:0.9; }
+
+        /* quick hue-shift and jitter */
+        @keyframes hue-jitter { 0% { filter: hue-rotate(0deg) invert(0); } 25% { filter: hue-rotate(180deg) invert(.9); } 50% { filter: hue-rotate(90deg) invert(.4); } 75% { filter: hue-rotate(270deg) invert(.8); } 100% { filter: hue-rotate(0deg) invert(0); } }
+        .glitch-mode .tos-text, .glitch-mode p, .glitch-mode h1, .glitch-mode h2 {
+            animation: hue-jitter 900ms linear infinite;
+        }
+
+        /* scanline / noise overlay used by JS */
+        .glitch-scanlines {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            mix-blend-mode: overlay;
+            background-image: linear-gradient(rgba(0,0,0,0.06) 0 1px, transparent 1px);
+            background-size: 100% 4px;
+            opacity: 0.9;
+            z-index: 9999;
+        }
+
+        .glitch-flash {
+            position: fixed; inset: 0; pointer-events: none; z-index: 10000;
+            background: rgba(255,255,255,0.04);
+            mix-blend-mode: screen;
+        }
+
     </style>
 </head>
 <body class="bg-gray-50 transition-all duration-500">
@@ -212,6 +277,18 @@
         let complexityLevel = 0; // Tracks how many clauses have been added. This is the main complexity metric.
         let isGenerating = false; // Flag to prevent generating multiple clauses at once while scrolling.
         let userIdentifier = ''; // Stores the name entered by the user.
+
+    // ===== Glitch / Breakdown state =====
+    let glitchActive = false; // whether glitch mode is currently running
+    let scrambleInterval = null; // interval handle for text scrambling
+    let jitterInterval = null; // interval for element jitter
+    let randomTriggerY = null; // the random scroll position that will trigger the glitch
+    const textNodesBackup = new Map(); // store original text for restoration
+    const OPT_OUT_KEY = 'glitchOptOut';
+    // additional intense-mode controls
+    let flashInterval = null; // rapid screen flash toggling
+    let overlayEl = null; // DOM element for scanlines
+    let flashEl = null; // DOM element for subtle flashes
 
     // ===== Glitch / Breakdown state =====
     let glitchActive = false; // whether glitch mode is currently running
@@ -359,6 +436,22 @@
                     console.error('API call failed', err);
                 });
 
+
+            // Example backend call: demonstrate a serverless API request.
+            // This shows how the frontend can call a backend endpoint (hosted on Vercel under /api).
+            fetch(`/api/hello?identifier=${encodeURIComponent(userIdentifier)}`)
+                .then(response => response.json())
+                .then(data => {
+                    const info = document.createElement('div');
+                    info.className = 'my-4 p-3 bg-green-50 border-l-4 border-green-400 text-sm rounded';
+                    info.textContent = `${data.message} (server time: ${new Date(data.timestamp).toLocaleString()})`;
+                    // Show the API response at the top of the TOS container
+                    tosAppContainer.prepend(info);
+                })
+                .catch(err => {
+                    console.error('API call failed', err);
+                });
+
             generateNewTerms(); // Loads the very first clause
             // Choose a random trigger point (a Y offset) that will cause visuals to break down
             // Assumption: 'random point' == a random scroll position during this session.
@@ -372,7 +465,179 @@
                 randomTriggerY = 800; // fallback
             }
 
+            // Choose a random trigger point (a Y offset) that will cause visuals to break down
+            // Assumption: 'random point' == a random scroll position during this session.
+            // We pick something between 25% and 80% of the current scrollable height so it feels unpredictable.
+            try {
+                const totalScrollable = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+                const minPos = Math.floor(totalScrollable * 0.25);
+                const maxPos = Math.floor(totalScrollable * 0.8);
+                randomTriggerY = Math.floor(Math.random() * Math.max(1, (maxPos - minPos))) + minPos;
+            } catch (e) {
+                randomTriggerY = 800; // fallback
+            }
+
             // The most important part: start listening for scrolling!
+            window.addEventListener('scroll', handleScroll);
+            window.addEventListener('scroll', checkGlitchTrigger);
+        }
+
+
+        // ===== Glitch control functions =====
+        function checkGlitchTrigger() {
+            // Do nothing if user opted out
+            try {
+                if (localStorage.getItem(OPT_OUT_KEY) === 'true') return;
+            } catch (e) { /* ignore storage errors */ }
+
+            if (glitchActive) return;
+            if (randomTriggerY == null) return;
+
+            if (window.scrollY >= randomTriggerY) {
+                enableGlitch();
+            }
+        }
+
+        function enableGlitch() {
+            if (glitchActive) return;
+            // Respect reduced-motion preference
+            const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (prefersReduced) return; // do not enable
+
+            glitchActive = true;
+            document.body.classList.add('glitch-mode');
+
+            // Mark headings so CSS pseudo elements can copy text
+            document.querySelectorAll('#main-title, #terms-container h2, #terms-container h1').forEach(h => {
+                h.classList.add('glitch-heading');
+                h.setAttribute('data-text', h.textContent || '');
+            });
+
+            // Intense mode: start fast scrambling and aggressive jitter
+            // Scramble very frequently and replace a large fraction of characters
+            scrambleInterval = setInterval(scrambleAllText, 80);
+
+            // Aggressive jitter: larger offsets
+            jitterInterval = setInterval(randomizeJitter, 90);
+
+            // Add a scanline/noise overlay for CRT-ish disruption
+            overlayEl = document.createElement('div');
+            overlayEl.className = 'glitch-scanlines';
+            document.body.appendChild(overlayEl);
+
+            // Add a subtle flashing element that will be toggled to increase anxiety
+            flashEl = document.createElement('div');
+            flashEl.className = 'glitch-flash';
+            flashEl.style.opacity = '0';
+            document.body.appendChild(flashEl);
+
+            // Flash intermittently with random intensity
+            flashInterval = setInterval(() => {
+                const o = 0.03 + Math.random() * 0.28; // brief 0.03-0.31 overlay
+                flashEl.style.transition = 'opacity 110ms linear';
+                flashEl.style.opacity = String(o);
+                setTimeout(() => { if (flashEl) flashEl.style.opacity = '0'; }, 120 + Math.random()*200);
+            }, 220 + Math.random()*300);
+        }
+
+        function disableGlitch() {
+            if (!glitchActive) return;
+            glitchActive = false;
+            document.body.classList.remove('glitch-mode');
+
+            // stop intervals
+            if (scrambleInterval) {
+                clearInterval(scrambleInterval);
+                scrambleInterval = null;
+            }
+            if (jitterInterval) {
+                clearInterval(jitterInterval);
+                jitterInterval = null;
+            }
+
+            if (flashInterval) {
+                clearInterval(flashInterval);
+                flashInterval = null;
+            }
+
+            // remove overlay elements
+            try { if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl); } catch (e) {}
+            overlayEl = null;
+            try { if (flashEl && flashEl.parentNode) flashEl.parentNode.removeChild(flashEl); } catch (e) {}
+            flashEl = null;
+
+            // restore text content
+            restoreAllText();
+
+            // clean up heading attributes
+            document.querySelectorAll('.glitch-heading').forEach(h => {
+                h.classList.remove('glitch-heading');
+                h.removeAttribute('data-text');
+            });
+        }
+
+        function scrambleAllText() {
+            // Replace a fraction of characters in each text node inside the terms container
+            const nodes = [];
+            function walk(node) {
+                node.childNodes.forEach(child => {
+                    if (child.nodeType === Node.TEXT_NODE && child.textContent.trim().length > 3) {
+                        nodes.push(child);
+                    } else if (child.nodeType === Node.ELEMENT_NODE) {
+                        walk(child);
+                    }
+                });
+            }
+            walk(termsContainer);
+
+            // Intensified glyph set and heavier scramble: 40-85% of characters replaced
+            const glyphs = '█▒░▓@#%&*+=?!/<>—~()[]{}<>•○●◆◇▲▼∆⌘≈≠≡';
+            nodes.forEach(textNode => {
+                // backup original text once
+                if (!textNodesBackup.has(textNode)) {
+                    textNodesBackup.set(textNode, textNode.textContent);
+                }
+                const orig = textNodesBackup.get(textNode) || '';
+                // occasionally prepend/append random glyph noise for extra chaos
+                const prefix = Math.random() < 0.12 ? glyphs[Math.floor(Math.random()*glyphs.length)] : '';
+                const suffix = Math.random() < 0.12 ? glyphs[Math.floor(Math.random()*glyphs.length)] : '';
+                const chars = orig.split('');
+                // scramble 40-85% of chars randomly (more aggressive)
+                const scrambleCount = Math.max(1, Math.floor(chars.length * (0.4 + Math.random() * 0.45)));
+                for (let i = 0; i < scrambleCount; i++) {
+                    const idx = Math.floor(Math.random() * chars.length);
+                    chars[idx] = glyphs[Math.floor(Math.random() * glyphs.length)];
+                }
+                // randomly uppercase or inject spacing to further reduce legibility
+                for (let i = 0; i < chars.length; i++) {
+                    if (Math.random() < 0.06) chars[i] = chars[i].toUpperCase();
+                    if (Math.random() < 0.03) chars[i] = chars[i] + ' ';
+                }
+                textNode.textContent = prefix + chars.join('') + suffix;
+            });
+        }
+
+        function restoreAllText() {
+            // restore backed-up originals
+            textNodesBackup && textNodesBackup.forEach && textNodesBackup.forEach((val, node) => {
+                try { node.textContent = val; } catch (e) { /* ignore */ }
+            });
+        }
+
+        function randomizeJitter() {
+            // apply tiny transforms to some sections for chaotic layout
+            document.querySelectorAll('#terms-container section').forEach((sec, i) => {
+                // much larger offsets for intense effect
+                const base = (i % 3 === 0 ? 22 : 10);
+                const dx = (Math.random() - 0.5) * base;
+                const dy = (Math.random() - 0.5) * base;
+                const rot = (Math.random() - 0.5) * 6;
+                sec.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg) skew(${(Math.random()-0.5)*4}deg, ${(Math.random()-0.5)*4}deg)`;
+                sec.style.transition = 'transform 120ms linear';
+                // occasionally nudge opacity and blur
+                sec.style.opacity = String(0.6 + Math.random() * 0.6);
+                sec.style.filter = 'blur(' + (1 + Math.random()*3) + 'px)';
+            });
             window.addEventListener('scroll', handleScroll);
             window.addEventListener('scroll', checkGlitchTrigger);
         }
@@ -685,6 +950,25 @@
             
             // Runs once on load to set the initial state of the button (disabled).
             checkFormValidity();
+
+            // Initialize glitch opt-out control (persisted)
+            const glitchOptEl = document.getElementById('glitch-opt-out');
+            try {
+                if (glitchOptEl) {
+                    // If the user prefers reduced motion, default to opt-out
+                    const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                    const stored = localStorage.getItem(OPT_OUT_KEY);
+                    if (stored === null && prefersReduced) {
+                        localStorage.setItem(OPT_OUT_KEY, 'true');
+                    }
+                    const isOptOut = localStorage.getItem(OPT_OUT_KEY) === 'true';
+                    glitchOptEl.checked = !!isOptOut;
+                    glitchOptEl.addEventListener('change', (e) => {
+                        try { localStorage.setItem(OPT_OUT_KEY, e.target.checked ? 'true' : 'false'); } catch (err) {}
+                        if (e.target.checked) disableGlitch();
+                    });
+                }
+            } catch (err) { /* ignore storage errors */ }
 
             // Initialize glitch opt-out control (persisted)
             const glitchOptEl = document.getElementById('glitch-opt-out');
