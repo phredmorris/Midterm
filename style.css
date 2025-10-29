@@ -1,4 +1,3 @@
-
 body {
     background-color: #f9fafb;
     transition: background-color 1s ease;
@@ -18,6 +17,15 @@ body {
     padding: 0.75rem;
     border-bottom: 4px solid #2563eb;
 }
+
+.commitment-meter-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+
 
 #main-content-wrapper {
     max-width: 56rem;
@@ -448,6 +456,20 @@ h2 {
     text-align: center;
 }
 
+.text-center {
+    text-align: center;
+}
+
+.text-left {
+    text-align: left;
+}
+
+.text-right {
+    text-align: right;
+}
+
+
+
 .api-response {
     margin: 1rem 0;
     padding: 0.75rem;
@@ -456,4 +478,49 @@ h2 {
     border-color: #4ade80;
     font-size: 0.875rem;
     border-radius: 0.25rem;
+}
+
+@media (max-width: 768px) {
+    #main-content-wrapper {
+        padding: 1.5rem 1rem;
+    }
+
+    h1 {
+        font-size: 1.75rem;
+    }
+
+    p {
+        font-size: 1rem;
+    }
+
+    .commitment-meter-content {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .glitch-opt-out {
+        margin-top: 0.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    #welcome-screen > div {
+        padding: 1.5rem;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    p {
+        font-size: 0.875rem;
+    }
+}
+
+@media (max-width: 768px) {
+
+
+    .glitch-opt-out {
+        margin-top: 0.5rem;
+    }
 }
