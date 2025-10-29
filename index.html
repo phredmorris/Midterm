@@ -230,7 +230,7 @@
                 const totalScrollable = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
                 const minPos = Math.floor(totalScrollable * 0.25);
                 const maxPos = Math.floor(totalScrollable * 0.8);
-                randomTriggerY = Math.floor(Math.random() * Math.max(1, (maxPos - minPos))) + minPos;
+                randomTriggerY = Math.floor(Math.random() * Math.max(1, (maxPos - minPos))) + minPos + 2000;
             } catch (e) {
                 randomTriggerY = 800;
             }
